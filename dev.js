@@ -6,12 +6,12 @@ $.__src = '/usr/share/dev/users/pac/api/src/tests';
 $.__run = '/usr/share/dev/users/pac/api/run/testr';
 $.__dep = '/usr/share/dev/users/pac/api/dep/testr';
 
-if(1==2){
+if(1==1){
   $.__src = '/usr/share/dev/nodejs/src/pure3';
-  $.__run = '/usr/share/dev/nodejs/src/pure3';
+  $.__run = '/usr/share/dev/nodejs/run/pure3';
 }
 
-const _debug = 2;
+const _debug = 0;
 const ce = function(e1){console.error(style(e1,'fg_red'))}
 const cl = console.log;
 const exit = process.exit;
