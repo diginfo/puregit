@@ -20,6 +20,7 @@ module.exports = {
   dryrun         : true,
   
   /* Utils */
+  _exec          : exec,
   exec           : git_exec,
   changedFiles   : changedFiles,
   deletedAdd     : deletedAdd,
@@ -58,8 +59,8 @@ function errors(msg){
 }
 
 function exec(cmd,cb){
-	//var opts = { maxBuffer: 10 * 1024 * 1024 * 1024};
-	var opts = {};
+	var opts = { maxBuffer: 10 * 1024 * 1024 * 1024};
+	//var opts = {};
 	_cp.exec(cmd,opts,function (error, stdout, stderr) {
 		if(typeof(cb)=="function") {
 			if(error){ return cb({error:true,'err':error,'std':stderr,'msg':stderr});}

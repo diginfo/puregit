@@ -11,7 +11,7 @@ if(1==1){
   $.__run = '/usr/share/dev/nodejs/run/pure3';
 }
 
-const _debug = 0;
+const _debug = 2;
 const ce = function(e1){console.error(style(e1,'fg_red'))}
 const cl = console.log;
 const exit = process.exit;
@@ -346,14 +346,41 @@ function infoSet(file,cb){
   });
 }
 
+function tree(cb=cl){
+  var dir = {
+    'mod'   : 'mod',
+    'prpt'  : 'prpt',
+    'lib'   : 'lib',
+    'html'  : 'html/eui',
+    'sql'   : 'sql'
+  };
+  
+  if(!_args[0] || !dir[_args[0]]) quit('Folder name is required.');
+  
+  var path = _path.join($.__src,dir[_args[0]]);
+  if(_args[1]) path = _path.join(path,_args[1]);
+  
+  _git._exec(`/usr/bin/tree ${path} -L 4;`,cb)
+}
+
+function findFile(){
+  
+}
+
+function findText(cb){
+  _git._exec(`cd ${$.__src}; /bin/grep -r "${_args[0]}";`,cb)  
+}
+
 function help(){
   cl()
-  cl(style('===================== HELP ======================','bg_blu'))
-  cl('BUILD         : puredev build   [file-path|-lock|-unlock]');
-  cl('RELEASE       : puredev release [file-path|-lock|-unlock]');
-  cl('FILE-INFO GET : puredev infoGet file-path');
-  cl('FILE-INFO SET : puredev infoSet file-path');
-  cl('FILE DELETE   : puredev rm file-path');
+  cl(style('                  PUREDEV HELP                      ',['bg_blu','fg_wht']))
+  cl('BUILD     : puredev build   [file/path|-lock|-unlock]');
+  cl('RELEASE   : puredev release [file/path]');
+  cl('FILE-INFO : puredev infoGet file/path');
+  cl('LOCK      : puredev lock file/path');
+  cl('UNLOCK    : puredev unlock file/path');
+  cl('DELETE    : puredev rm file/path');
+  cl('TREE      : puredev tree mod|prpt|lib|html|sql [sub-dir]');
   cl()
 }
 
@@ -400,14 +427,24 @@ switch(_cmd) {
     rm();
     break;
 
+  case 'tree':
+    tree();
+    break;
+
+  case 'findText':
+    findText();
+    break;
+
   case 'deploy':
     deploy($.__dep,cl);
     break;
-    
+  
+  case 'help': 
   default:
     help();
 
 }
+
 
 /*
 
