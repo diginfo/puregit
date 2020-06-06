@@ -1,0 +1,2 @@
+rsync -rav /usr/share/dev/nodejs/src/pure3 /usr/share/dev/users/pac/api/src
+rsync -rav /usr/share/dev/nodejs/run/pure3 /usr/share/dev/users/pac/api/run
