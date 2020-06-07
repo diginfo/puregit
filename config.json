@@ -1,0 +1,18 @@
+{
+  "source"      : "/usr/share/dev/nodejs/src/pure3",
+  "target"      : "/usr/share/dev/nodejs/run/pure3",
+  
+  "source"      : "/usr/share/dev/nodejs/src/pure-git/src/tests",
+  "target"      : "/usr/share/dev/nodejs/src/pure-git/run/testr",
+  
+  "deploy"      : "/usr/share/dev/nodejs/src/pure-git/dep/testr",
+  
+  "version"     : 3,
+  "debug"       : 0,
+  
+  "pug"         : {
+    "enabled"   : true,
+    "basedir"   : "html/eui",
+    "includes"  : ["mixins.pug"]
+  }
+}

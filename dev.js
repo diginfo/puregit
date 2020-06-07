@@ -2,17 +2,20 @@
 
 if(!global.$) global.$ = {};
 
-$.__src = '/usr/share/dev/users/pac/api/src/tests';
-$.__run = '/usr/share/dev/users/pac/api/run/testr';
-$.__dep = '/usr/share/dev/users/pac/api/dep/testr';
+$ = Object.assign($,require('./config.json'));
 
-if(1==1){
-  $.__src = '/usr/share/dev/nodejs/src/pure3';
-  $.__run = '/usr/share/dev/nodejs/run/pure3';
+if(1==2){
+  $.source = '/usr/share/dev/users/pac/api/src/tests';
+  $.target = '/usr/share/dev/users/pac/api/run/testr';
+  $.deploy = '/usr/share/dev/users/pac/api/dep/testr';
 }
 
-const _debug = 2;
-const ce = function(e1){console.error(style(e1,'fg_red'))}
+if(1==2){
+  $.source = '/usr/share/dev/nodejs/src/ve3';
+  $.target = '/usr/share/dev/nodejs/run/ve3';
+}
+
+const ce = function(e1){console.error(style(e1,'fgr'))}
 const cl = console.log;
 const exit = process.exit;
 
@@ -20,23 +23,24 @@ const _args       = process.argv.splice(2);
 const _cmd        = _args.shift();
 const _opts       = [];
 const _uid        = process.env.UID3;
-const gituser     = process.env.GITUID;
-const pat         = process.env.GITPAK;
+const _gituid     = process.env.GITUID;
+const _gitpak     = process.env.GITPAK;
 
 const _readline   = require('readline');
 const _path       = require('path');
 const _fs         = require('fs');
 const _async      = require('async');
 const _min        = require('./minify');
-const _git        = require('./gitmod');
+const _git        = require('./git');
+const _pug        = require('pug');
+
 const {promisify} = require('util');
 
-_git.debug = _debug;
 var _lastnote = '';
 
 // styling the console output.
 function style(str,sty,noclr){
-  var cols={res: "\x1b[0m",bright : "\x1b[1m",dim : "\x1b[2m",ul : "\x1b[4m",blink : "\x1b[5m",reverse : "\x1b[7m",hide : "\x1b[8m",fg_blk : "\x1b[30m",fg_red : "\x1b[31m",fg_grn : "\x1b[32m",fg_yel : "\x1b[33m",fg_blu : "\x1b[34m",fg_pur : "\x1b[35m",fg_cyn : "\x1b[36m",fg_wht : "\x1b[37m",bg_blk : "\x1b[40m",bg_red : "\x1b[41m",bg_grn : "\x1b[42m",bg_yel : "\x1b[43m",bg_blu : "\x1b[44m",bg_pur : "\x1b[45m",bg_cyn : "\x1b[46m",bg_wht : "\x1b[47m"};
+  var cols={res: "\x1b[0m",bright : "\x1b[1m",dim : "\x1b[2m",ul : "\x1b[4m",blink : "\x1b[5m",rev : "\x1b[7m",hide : "\x1b[8m",fgk : "\x1b[30m",fgr : "\x1b[31m",fgg : "\x1b[32m",fgy : "\x1b[33m",fgb : "\x1b[34m",fgv : "\x1b[35m",fgc : "\x1b[36m",fgw : "\x1b[37m",bgk : "\x1b[40m",bgr : "\x1b[41m",bgg : "\x1b[42m",bgy : "\x1b[43m",bgb : "\x1b[44m",bgv : "\x1b[45m",bgc : "\x1b[46m",bgw : "\x1b[47m"};
   
   if(typeof sty =='string') sty=[sty];
   sty.map(function(e){str = cols[e]+str;})
@@ -44,7 +48,29 @@ function style(str,sty,noclr){
   return str;
 }
 
-function rpad(data,len,chr=' '){
+function h1(txt,len=10){
+  const tlen = txt.length;
+  cl();
+  cl(style(rpad(lpad(` ${txt} `,tlen+len,'-'),tlen+len*2,'-'),'bgb'))  
+}
+function h2(txt){cl(style(`\n${txt}`,['fgc','ul']))}
+
+function list(list,sty){
+  if(!Array.isArray(list)) return oblist(list,sty);
+  list.map(function(row,i){
+    var line = `${lpad(i+1)}. ${row}`
+    if(style) cl(style(line,sty));
+    else cl(line);   
+  })  
+}
+
+function oblist(obj){
+  for(var k in obj){
+    cl(`${lpad(k,8)} : ${JSON.stringify(obj[k]).replace(/"/g,'')}`)    
+  }  
+}
+
+function rpad(data,len=2,chr=' '){
   return data.toString().padEnd(len,chr)
 }
 
@@ -60,7 +86,7 @@ function newrl(){
 
 function dbInit(){
   const sqlite3 = require('sqlite3');
-  const data = require(_path.join($.__src,'data','gitdata.json'));
+  const data = require(_path.join($.source,'data','gitdata.json'));
   const db = new sqlite3.Database(_path.join(__dirname,'gitdata.db'));
 
   function get(sql,cb){
@@ -111,12 +137,12 @@ function selectFiles(dir,cb=cl){
       if(file) return cb([file]);
     }
     
-    var sty = ['bg_blu','fg_wht']
+    var sty = ['bgb','fgw']
     cl()
     cl(`${style(lpad('#',2),sty)} ${style(lpad('VER',6),sty)} ${style(rpad('PATH',30),sty)}`)
     files.map(function(file,idx){
       var msg = `${lpad(idx+1)} ${lpad(file.ver,6)} ${file.name}`; 
-      if(file.lock) msg = style(msg,'fg_red');
+      if(file.lock) msg = style(msg,'fgr');
       cl(msg);
     })
     cl()
@@ -137,7 +163,7 @@ function selectFiles(dir,cb=cl){
 
 function prompt(msg,cb,def){
   const rl = newrl();
-  rl.question(style(`${msg} > `,'fg_wht'),function(res){
+  rl.question(style(`${msg} > `,'fgw'),function(res){
     cb(res);
     rl.close();   
   });
@@ -150,21 +176,32 @@ function dodir(file) {
 }
 
 function notes(file,cb){
-  prompt(`Notes [ ${file.name} ]`, function(notes){
-    cb(notes);
-  },_lastnote);
+  function go(){
+    prompt(`Notes`,cb,_lastnote);
+  }
+  go();
+  
+  /*
+  if(_lastnote) prompt(`Use notes [${_lastnote}] for all ? (y/n)`,function(yn){
+    if(yn.toLowerCase() == 'y') return cb(_lastnote);
+    else go();
+  }); 
+  
+  else go();
+  */
+
 }
 
 function quit(msg='Quit.'){
-  if(msg) cl(style(msg,'fg_red'));
+  if(msg) cl(style(msg,'fgr'));
   exit();
 }
 
 function rm(){
   prompt('Enter File Path', function(fn){
     if(!fn || (/q|x/).test(fn)) quit('File path is required.');
-    _git.fileRm($.__src,{name:fn},function(){
-      _git.fileRm($.__run,{name:fn},cl);
+    _git.fileRm($.source,{name:fn},function(){
+      _git.fileRm($.target,{name:fn},cl);
     })
   })
 }
@@ -191,8 +228,8 @@ function lockUnlock(mode,cb){
       file.force = true;
       if(mode=='lock') file.flags = flagLock(file.flags);
       else file.flags = flagUnlock(file.flags);
-      _git.fileCommit($.__src,file,function(){
-        _git.push($.__src,cb)
+      _git.fileCommit($.source,file,function(){
+        _git.push($.source,cb)
       })  
     });
   },_args[0]);  
@@ -207,20 +244,85 @@ function unlock(cb=cl){
 }
 
 function release(){
-  selectFiles($.__run,function(files){
+  selectFiles($.target,function(files){
     _async.eachSeries(files,function(file,next){
-      _git.fileCommit($.__run,file,function(){
+      cl(style(`> ${file.name}`,'fgw'));
+      _git.fileCommit($.target,file,function(){
         next();
       });
     },function(){
       
       /* RELEASE-DONE */
-      _git.push($.__run,function(){
+      _git.push($.target,function(){
         cl(`Release Done (${files.length}) files.`)
       });
     })
   }) 
     
+}
+
+function pugBuild(fn,cb=cl){
+  fn = fn.replace($.pug.basedir,'');
+  const fname = _path.basename(fn);
+  //if(!$.pug.enabled) return quit('pug is disabled.')
+  const html = _path.join($.source,$.pug.basedir);
+  const fp  = _path.join(html,fn);
+  var src = _fs.readFileSync(fp,'utf-8');
+  
+  return cb({
+    error : false,
+    msg   : `[${fname}] Build Success.`,
+    code  : src
+  })
+  
+  /*
+  
+  // include files.
+  var incs = [];
+  $.pug.includes.map(function(inc){incs.push(`include /${inc}`)});
+  incs = incs.join('\n')+'\n';
+  
+  try {
+    const code = _pug.compile(incs+src,{
+      basedir       : html,
+      compileDebug  : true,
+      filename      : fp
+    })();
+    cb({error:false,msg:`[${fname}] Build Success.`,file:fn,code:code});
+    
+  } catch(err){
+    ce(err);
+    cb({error:true,msg:`ERROR: ${err.msg} at line ${err.line}, column ${err.column}`,file:fn})
+  }
+  */
+}
+
+function buildTry(fn,cb=cl){
+  fn = fn || _args[0];
+  const sfn = _path.join($.source,fn);
+  const extn = _path.extname(fn).replace(/^\./,'');
+  
+  function done(ok){
+    return cb(ok);   
+  }
+  
+  switch (extn){
+    case 'js':
+      _min.js(sfn,done);
+      break;
+    
+    case 'css':
+      _min.css(sfn,done);
+      break;
+    
+    case 'jade':
+    case 'pug':
+      pugBuild(fn,done);
+      break;
+      
+    default:
+      return cb({error:true,msg:`cannot verify ${extn} files.`});
+  }
 }
 
 function buildFiles(files,cb){
@@ -229,16 +331,16 @@ function buildFiles(files,cb){
   // file paths
   function fns(fn){
     return {
-      sfn : _path.join($.__src,fn),
-      rfn : _path.join($.__run,fn)
+      sfn : _path.join($.source,fn),
+      rfn : _path.join($.target,fn)
     }    
   }
   
   // write js/css & commit
-  function buildWrite(file,data,cb=cl){
+  function buildWrite(file,code,cb=cl){
     const {sfn,rfn} = fns(file.name);
     //cl(`buildWrite(',${rfn})`);
-    _fs.writeFile(rfn,data,'utf-8',function(){
+    _fs.writeFile(rfn,code,'utf-8',function(){
       cb();
     });
   }
@@ -253,7 +355,7 @@ function buildFiles(files,cb){
   }
 
   _async.eachSeries(files,function(file,next){
-    
+    cl(style(`> ${file.name}`,'fgw'));
     function done(min){
       
       // js/css compile error.
@@ -272,7 +374,7 @@ function buildFiles(files,cb){
         else quit('Notes are required.');
       
         // commit the file.
-        _git.fileCommit($.__src,file,function(data){
+        _git.fileCommit($.source,file,function(data){
           proc.push(file);
           next();
         });   
@@ -286,17 +388,15 @@ function buildFiles(files,cb){
     dodir(rfn); // create folder if not exists.
     
     switch (extn){
+      case 'jade':
+      case 'pug':
       case 'js':
-        _min.js(sfn,function(js){
-          if(js.error) return done(js);
-          else buildWrite(file,`/*${JSON.stringify(file)}*/${js.code}`,done); 
-        });
-        break;
-      
       case 'css':
-        _min.css(sfn,function(css){
-          if(css.error) return done(css);
-          buildWrite(file,`/*${JSON.stringify(file)}*/${css}`,done); 
+        buildTry(file.name,function(build){
+          //quit(JSON.stringify(build.code));
+          if(build.error) return done(build);
+          //else cl(build.msg);
+          buildWrite(file,build.code,done); 
         });
         break;
         
@@ -305,7 +405,7 @@ function buildFiles(files,cb){
         break;        
     }   // switch
   },function(){
-    _git.push($.__src,function(){
+    _git.push($.source,function(){
       if(cb) cb(proc);
     });
   })
@@ -314,9 +414,9 @@ function buildFiles(files,cb){
 
 // Command line Build.
 function build(){
-  selectFiles($.__src,function(files){
+  selectFiles($.source,function(files){
     
-    if(_debug > 1) cl('build-ops:',_opts);
+    if($.debug > 1) cl('build-ops:',_opts);
     if(_opts.length) files.map(function(file,idx){
       file.flags = islock(file.flags);
     })
@@ -332,7 +432,7 @@ function deploy(dir,cb=cl){
     //return cb([]);
     cb([
       'sql/xxxx.sql',
-      'pure3-linux-aa',
+      've3-linux-aa',
       'prpt/report.prpt',
     ])
   }
@@ -357,10 +457,10 @@ function tree(cb=cl){
   
   if(!_args[0] || !dir[_args[0]]) quit('Folder name is required.');
   
-  var path = _path.join($.__src,dir[_args[0]]);
+  var path = _path.join($.source,dir[_args[0]]);
   if(_args[1]) path = _path.join(path,_args[1]);
   
-  _git._exec(`/usr/bin/tree ${path} -L 4;`,cb)
+  _git.shell(`/usr/bin/tree ${path} -L 4;`,cb)
 }
 
 function findFile(){
@@ -368,20 +468,36 @@ function findFile(){
 }
 
 function findText(cb){
-  _git._exec(`cd ${$.__src}; /bin/grep -r "${_args[0]}";`,cb)  
+  _git.shell(`cd ${$.source}; /bin/grep -r "${_args[0]}";`,cb)  
+}
+
+function readme(cb=cl){
+  const cmd = `${_path.join(__dirname,'glow')} README.md`;
+  _git.shell(cmd,function(rows){
+    process.stdout.write(rows);
+  })
 }
 
 function help(){
-  cl()
-  cl(style('                  PUREDEV HELP                      ',['bg_blu','fg_wht']))
-  cl('BUILD     : puredev build   [file/path|-lock|-unlock]');
-  cl('RELEASE   : puredev release [file/path]');
-  cl('FILE-INFO : puredev infoGet file/path');
-  cl('LOCK      : puredev lock file/path');
-  cl('UNLOCK    : puredev unlock file/path');
-  cl('DELETE    : puredev rm file/path');
-  cl('TREE      : puredev tree mod|prpt|lib|html|sql [sub-dir]');
-  cl()
+  function c1(txt){return rpad(txt,15)}
+  function row(c1,c2){cl(rpad(c1,15),`: ${c2}`)}
+  h1('PUREDEV HELP')
+  
+  h2('Develop')
+  row('Build File(s)','puredev build [-lock|-unlock|file/path]')
+  row('Release File(s)','puredev release [file/path]')
+  
+  h2('Modify')
+  row('Lock File','puredev lock file/path')
+  row('Unlock File','puredev unlock file/path')
+  row('Delete File','puredev rm file/path')
+  
+  h2('Info')
+  row('Validate File','puredev validate file/path')
+  row('File Info','puredev info file/path')
+  row('Tree List','puredev tree mod|prpt|lib|html|sql [sub-dir]')
+  row('Locked List','puredev locked')
+  cl();
 }
 
 _args.map(function(arg,idx){
@@ -390,17 +506,28 @@ _args.map(function(arg,idx){
     _opts.push(opt[1]);
     _args.splice(idx,1);
   };
-  //if(_debug > 1) cl('_opts:',_opts)
+  //if($.debug > 1) cl('_opts:',_opts)
 })
+
+/*
+try {
+  cl(_cmd)
+  [_cmd](_args[0]);
+} catch(e){}
+*/
+
 
 switch(_cmd) {
   
   case 'changedFiles':
-    _git.changedFiles($.__src);
+    _git.changedFiles($.source);
     break;
 
-  case 'infoGet':
-    _git.infoGet(_args[0].trim());
+  case 'info':
+    _git.infoGet(_args[0].trim(),function(data){
+      h2(`File Info`)
+      list(data);
+    });
     break;
 
   case 'infoSet':
@@ -413,6 +540,13 @@ switch(_cmd) {
 
   case 'release':
     release();
+    break;
+
+  case 'locked':
+    _git.locked(function(files){
+      h2('Locked Files')
+      list(files,'fgr');  
+    });
     break;
 
   case 'lock':
@@ -431,12 +565,17 @@ switch(_cmd) {
     tree();
     break;
 
-  case 'findText':
-    findText();
-    break;
-
   case 'deploy':
-    deploy($.__dep,cl);
+    deploy($.deploy,cl);
+    break;
+  
+  case 'validate':
+    prompt('Enter File Path',function(path){
+      buildTry(path,function(ok){
+        if(ok.error) ce(ok.msg);
+        else cl(ok.msg);  
+      });
+    },_args[0])
     break;
   
   case 'help': 
@@ -446,9 +585,11 @@ switch(_cmd) {
 }
 
 
+//cl($)
+
 /*
 
-cl(ino,style(`${e} (lock)`,'fg_red'))
+cl(ino,style(`${e} (lock)`,'fgr'))
 
 7 > 8 and modified
 

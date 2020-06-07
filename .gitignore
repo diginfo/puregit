@@ -1,22 +1,4 @@
-<<<<<<< HEAD
 node_modules/
-deploy/
+dep/
 run/
 src/
-=======
-node_modules
-*.log
-*.off
-*.job
-data/dwap.db
-data/dwapgrp.db
-data/session.db
-data/sessions.json
-script
-data/reports.json
-lib/dev
-lib/dev/map/
-data/public/files/*.*
-sql/init/
-sql/archive/
->>>>>>> b4767e1672b79aa8d2ac313a96a10646b575c70c

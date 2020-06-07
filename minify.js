@@ -15,19 +15,27 @@ module.exports.css = function(file,cb=cl){
       return cb(errmsg(fname,code,err));
     }
     var min = new css().minify(code);
-    cl(min);
-/*
-    { styles: 'body:{background:red}',
-    stats: 
-     { efficiency: 0.36363636363636365,
-       minifiedSize: 21,
-       originalSize: 33,
-       timeSpent: 13 },
-    errors: [],
-    inlinedStylesheets: [],
-    warnings: [ 'Invalid character(s) \'dadadada\' at 2:0. Ignoring.' ] }
-*/
-    if(min.styles) cb(min.styles);
+    /*
+        { styles: 'body:{background:red}',
+        stats: 
+         { efficiency: 0.36363636363636365,
+           minifiedSize: 21,
+           originalSize: 33,
+           timeSpent: 13 },
+        errors: [],
+        inlinedStylesheets: [],
+        warnings: [ 'Invalid character(s) \'dadadada\' at 2:0. Ignoring.' ] }
+    */
+    if(min.warnings.length) return cb({
+      error : true,
+      msg   : min.warnings.join(':')
+    }) 
+    
+    cb({
+      error : false,
+      code  : min.styles,
+      msg   : `[${fname}] Build Success.`
+    });
   })  
 }
 
@@ -44,10 +52,7 @@ module.exports.js = function(file,cb){
   var fname = path.basename(file);
   var pre = '_x_=';
   fs.readFile(file, "utf8",function(err,code){
-    if(err) {
-      ce('jsmin()',err.message);
-      return cb();
-    }
+    if(err) return cb({error:true,msg:err.message});
     code = code.trim().replace(/#\!\/usr\/bin\/env nodejs|#\!\/usr\/bin\/env node/,'');//.replace(/\.js$/g,'.min.js')
     if(code.indexOf('{')==0 || code.indexOf('function')==0) code = pre+code;
     
@@ -59,7 +64,8 @@ module.exports.js = function(file,cb){
         cb({
           error : false,
           code  : min.code.replace(pre,''),
-          map   : min.map
+          map   : min.map,
+          msg   : `[${fname}] Build Success.`
         });
       }
     } 
