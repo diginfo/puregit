@@ -58,13 +58,14 @@ function h2(txt){cl(style(`\n${txt}`,['fgc','ul']))}
 function list(list,sty){
   if(!Array.isArray(list)) return oblist(list,sty);
   list.map(function(row,i){
+    if(!row) return;
     var line = `${lpad(i+1)}. ${row}`
-    if(style) cl(style(line,sty));
+    if(sty) cl(style(line,sty));
     else cl(line);   
   })  
 }
 
-function oblist(obj){
+function oblist(obj,sty){
   for(var k in obj){
     cl(`${lpad(k,8)} : ${JSON.stringify(obj[k]).replace(/"/g,'')}`)    
   }  
@@ -162,12 +163,21 @@ function selectFiles(dir,cb=cl){
 }
 
 function prompt(msg,cb,def){
-  const rl = newrl();
+  var rl = newrl();
   rl.question(style(`${msg} > `,'fgw'),function(res){
-    cb(res);
-    rl.close();   
+    setTimeout(function(){cb(res)}); 
+    rl.close()  
   });
   if(def) rl.write(def);
+}
+
+function _prompt(arg,cb){
+  var rl = newrl();
+  rl.question(style(`${arg.msg} > `,'fgw'),function(res){
+    cb(res);
+    if(arg.close) rl.close();   
+  });
+  if(arg.def) rl.write(arg.def);
 }
 
 function dodir(file) {  
@@ -446,29 +456,58 @@ function infoSet(file,cb){
   });
 }
 
-function tree(cb=cl){
-  var dir = {
+
+function dirs(cb){
+  const dirs = {
+    '/'     : '.',
     'mod'   : 'mod',
     'prpt'  : 'prpt',
     'lib'   : 'lib',
     'html'  : 'html/eui',
-    'sql'   : 'sql'
-  };
+    'sql'   : 'sql',
+    'public': 'public'    
+  }
   
-  if(!_args[0] || !dir[_args[0]]) quit('Folder name is required.');
-  
-  var path = _path.join($.source,dir[_args[0]]);
-  if(_args[1]) path = _path.join(path,_args[1]);
-  
-  _git.shell(`/usr/bin/tree ${path} -L 4;`,cb)
+  const keys = Object.keys(dirs); 
+  list(keys);
+  prompt('Select Folder',function(idx){
+    if(!idx || (/qx/).test(idx) || isNaN(idx) || idx > keys.length) quit('Invalid Selection.')
+    cb(_path.join($.source,keys[idx-1]))
+  });
 }
 
-function findFile(){
-  
+function tree(cb=cl){
+  dirs(function(path){
+    _git.shell(`/usr/bin/tree ${path} -L 4;`,cb)
+  })
 }
 
-function findText(cb){
-  _git.shell(`cd ${$.source}; /bin/grep -r "${_args[0]}";`,cb)  
+function find(mode,cb){
+  dirs(function(path){
+    prompt('Enter Search String',function(str){
+      str = str.replace(/^\*|$\*/,'');
+      cmd = {
+        f: `find ${path} -wholename "*${str}*"`,
+        t: `grep -r -l "*${str}*" ${$.source};`  
+      }[mode]
+      cl(cmd);
+      _git.shell(cmd,function(fn){
+        var files =[];
+        fn.split('\n').map(function(e){
+          files.push(e.replace(`${$.source}/`,''));  
+        });
+        cb(files);
+      });
+    }) 
+  })  
+}
+
+function findFiles(cb=cl){
+  find('f',cb) 
+}
+
+function findText(cb=cl){
+  find('t',cb) 
 }
 
 function readme(cb=cl){
@@ -484,17 +523,22 @@ function help(){
   h1('PUREDEV HELP')
   
   h2('Develop')
-  row('Build File(s)','puredev build [-lock|-unlock|file/path]')
-  row('Release File(s)','puredev release [file/path]')
+  row('Build File(s)','puredev build [-lock|-unlock|dir/file]')
+  row('Release File(s)','puredev release [dir/file]')
+
+  h2('Pure Binary')
+  row('Build & Release','puredev binary -build -release')
   
-  h2('Modify')
-  row('Lock File','puredev lock file/path')
-  row('Unlock File','puredev unlock file/path')
-  row('Delete File','puredev rm file/path')
+  h2('Modify Files')
+  row('Lock File','puredev lock dir/file')
+  row('Unlock File','puredev unlock dir/file')
+  row('Delete File','puredev rm dir/file')
   
-  h2('Info')
-  row('Validate File','puredev validate file/path')
-  row('File Info','puredev info file/path')
+  h2('File Info')
+  row('Find File(s)','puredev findFiles')
+  row('Find Text','puredev findText')
+  row('Validate File','puredev validate dir/file')
+  row('File Info','puredev info dir/file')
   row('Tree List','puredev tree mod|prpt|lib|html|sql [sub-dir]')
   row('Locked List','puredev locked')
   cl();
@@ -551,6 +595,26 @@ switch(_cmd) {
 
   case 'lock':
     lock();
+    break;
+  
+  case 'fileFind':
+  case 'filesFind':
+  case 'findFile':
+  case 'findFiles':
+    findFiles(function(files){
+      h2('Found Files');
+      list(files);
+      cl()  
+    });
+    break;
+
+  case 'textFind':
+  case 'findText':
+    findText(function(files){
+      h2('Found Files With Text');
+      list(files);
+      cl()  
+    });
     break;
 
   case 'unlock':
