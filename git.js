@@ -1,17 +1,21 @@
 #!/usr/bin/env node
 
 const exit = process.exit;
+
+// Logging
 const ce = console.error;
 const cl = console.log;
+const jl = function(obj,str){
+  str=str||'';
+  try {cl(str,JSON.stringify(obj))}
+  catch(e){cl(e)};
+}
 
-const _cp = require('child_process');
-const _path = require('path');
-const fs = require('fs');
-const async = require('async');
-
-const _uid = process.env.UID3;
-
-const _skips = ['lib/dev/data/history.json','data/gitdata.json'];
+const _cp     = require('child_process');
+const _path   = require('path');
+const fs      = require('fs');
+const async   = require('async');
+const _uid    = process.env.UID3;
 
 module.exports = {
   
@@ -28,12 +32,14 @@ module.exports = {
   locked         : locked,
   
   /* File */
-  infoGet       : infoGet,  
+  infoGet        : infoGet,
+  infosGet       : infosGet,  
   fileAdd        : fileAdd,
   filePublish    : filePublish,
   fileInc        : fileInc,
   fileCommit     : fileCommit,
   fileRm         : fileRm,
+  revert         : revert,
   
   /* Global */
   push           : push,
@@ -42,10 +48,9 @@ module.exports = {
 
 const mex = module.exports;
 
+// $ Globals
 if(!global.$) global.$ = {};
-
-$.source = $.source || '/usr/share/dev/users/pac/api/src/pure3';
-$.target = $.target || '/usr/share/dev/users/pac/api/run/pure3';
+$.gitignore = $.gitignore || [];
 
 function newrl(){
   return readline.createInterface({input: process.stdin,output: process.stdout}); 
@@ -68,14 +73,19 @@ function exec(cmd,cb){
 	});
 };
 
+function revert(dir,file,cb){
+  git_exec(dir,{args:["revert",file.hash]},function(){
+    fileCommit(dir,file,cb)    
+  });  
+}
+
 function git_exec(dir,qry,cb){
-  // if($.debug) cl(`@dir(${dir})`);
   process.chdir(dir);
   var cmd = ["git"];
-  //if(qry.args.dryrun) cmd.push('--dry-run');
+  //if($.debug > 1) cmd.unshift('--dry-run');
   qry.args.map(function(arg){cmd.push("'"+arg+"'")});  
   cmd = cmd.join(' ').replace(/'/g,'');
-  if($.debug > 1) cl(`gitExec(): ${cmd}`); 
+  if($.debug > 1) cl(`gitExec(): ${dir} > ${cmd}`); 
   exec(cmd,function(res){
     if(!cb) return null;
     else if(res.error) cb({error:true,msg:errors(res.msg)});
@@ -151,7 +161,8 @@ function filePublish(dir,file,cb=cl){
 }
 
 function fileInc(dir,fn,cb=cl){
-  infoGet(fn,function(data){
+dir = $.source.path;
+  infoGet(dir,fn,function(data){
     data.ver = verInc(data.ver);
     if(cb) return cb(data);
     cl(data)  
@@ -165,7 +176,7 @@ function notes2array(data){
 
 function notes2str(data){
   if(!Array.isArray(data)) data=[data];
-  return data.join(';').replace(/\|/g,':'); 
+  return data.join(';').replace(/\|/g,':').replace(/"|'/g,'');
 }
 
 // Convert 3.99 > [3,99]
@@ -182,12 +193,13 @@ function ver2str(data){
 
 // file:{name|ver|uid|flags|notes} (70chrs ??)
 function fileCommit(dir,file,cb=cl){
+
   var notes = [
     file.name,
-    ver2str(file.ver),
+    ver2str(file.ver || []),
     _uid,
     file.flags,
-    notes2str(file.notes)
+    notes2str(file.notes || '')
   ].join('|')
   
   if($.debug > 1) cl('fileCommit():',notes);
@@ -205,7 +217,7 @@ function fileCommit(dir,file,cb=cl){
 
 // file:{name,notes,ver,flags}
 function fileRm(dir,file,cb){
-  git_exec(dir,{args:["rm","-rf",file.name]},function(res){
+  git_exec(dir,{args:["add",file.name,";","rm","-rf",file.name]},function(res){
     fileCommit(dir,file,cb);
   });        
 }
@@ -213,47 +225,118 @@ function fileRm(dir,file,cb){
 function fileMv(dir,file,cb){
   if(!file.oname) return cb({error:true,msg:'no oldfile name.'})
   file.notes = `renamed ${file.oname} > ${file.name}`
-  git_exec(dir,{args:["mv","-f",file.oname,file.name]},function(res){
+  git_exec(dir,{args:["add",file.name,";","mv","-f",file.oname,file.name]},function(res){
     fileCommit(dir,file,cb);
   });        
 }
 
-// debug & dev
+// this function receives all file statuses.
+function ___filesRmMv(dir,files,cb=cl){
+  if(_uid=='pac') return pac_filesRmMv(dir,files,cb);
+  
+  var idx = 0;
+  
+  /*
+    Modified,Added,Deleted,Renamed,Copied,Updated
+    { stat: 'D', name: 'file1.txt' }
+    { stat: 'R', name: 'file2b.css', oname: 'file2a.css' }
+  */
+  
+  var fns = files.filter(function(file){
+    if((/D|R/).test(file.stat)) return file.name;
+  });
+  
+  infosGet(dir,fns,function(infos){
+    async.eachSeries(files,function(file,next){
+      
+      // jl(file);
+      if((/D/).test(file.stat)){
+        cl('deleting',file.name);
+        // remove & commit from run / target
+        fileRm($.target.path,file,function(rm){
+          // commit source ??
+          fileCommit($.source.path,file,function(com){
+            files.splice(idx,1);
+            next();  
+          }) 
+        });
+      }
+  
+      else if((/R/).test(file.stat)){
+        cl(`renaming ${file.oname} > ${file.name}`);
+        // move target
+        fileMv($.target.path,file,function(mv){
+          // commit source
+          fileCommit($.source.path,file,function(com){
+            files.splice(idx,1);
+            next();  
+          }) 
+        })
+      }
+      
+      else next();    
+      
+    },function(){
+      cb(files);  
+    });
+  
+  })  //infosGet
+}
+
+// TODO: paths are not right.
 function filesRmMv(dir,files,cb=cl){
   var idx = 0;
-  async.eachSeries(files,function(file,next){
-    
-    /*
-      Modified,Added,Deleted,Renamed,Copied,Updated
-      { stat: 'D', name: 'file1.txt' }
-      { stat: 'R', name: 'file2b.css', oname: 'file2a.css' }
-    */
-    
-    if((/D/).test(file.stat)){
-      cl('deleting',file.name);
-      fileRm($.target,file,function(rm){
-        fileCommit($.source,file,function(com){
-          files.splice(idx,1);
-          next();  
-        }) 
-      });
-    }
-
-    else if((/R/).test(file.stat)){
-      cl(`renaming ${file.oname} > ${file.name}`);
-      fileMv($.target,file,function(mv){
-        fileCommit($.source,file,function(com){
-          files.splice(idx,1);
-          next();  
-        }) 
-      })
-    }
-    
-    else next();    
-    
-  },function(){
-    cb(files);  
+  
+  /*
+    Modified,Added,Deleted,Renamed,Copied,Updated
+    { stat: 'D', name: 'file1.txt' }
+    { stat: 'R', name: 'file2b.css', oname: 'file2a.css' }
+  */
+  
+  var fns = []; files.map(function(file){
+    //cl(file); // { stat: 'D', name: 'html/eui/inv/js/bhave.js' }
+    if((/D|R/).test(file.stat)) fns.push(file.name);
   });
+  
+  infosGet(dir,fns,function(infos){
+    async.eachSeries(files,function(file,next){
+      var done = false;
+      if(!file) return next();
+
+      function del(lcb){
+        if(!(/D/).test(file.stat)) return lcb()
+        cl(`Deleting' ${file.name}`);
+        fileRm($.source.path,file,function(rm){
+          fileRm($.target.path,file,function(rm){
+            files.splice(idx,1);
+            lcb() 
+          }) 
+        });
+      }
+ 
+      function ren(lcb){
+        if(!(/R/).test(file.stat)) return lcb();
+        cl(`Renaming ${file.oname} > ${file.name}`);
+        fileMv($.source.path,file,function(mv){
+          fileMv($.target.path,file,function(mv){
+            files.splice(idx,1);
+            lcb(); 
+          }) 
+        })
+      }
+      
+      // delete, then rename, then next.
+      del(function(){
+        ren(function(){
+          next();
+        });
+      });  
+      
+    },function(){
+      cb(files);  
+    });
+  
+  })  //infosGet
 }
 
 /*
@@ -292,16 +375,15 @@ function status(dir,cb=cl){
   })  
 }
 
+// returns [array] of file objects
 function changedFiles(dir,cb=cl){
   const files=[];
   status(dir,function(stats){
     //cl('stats>',stats); // [ { stat: 'A', name: 'file.js' } ]
     async.eachSeries(stats,function(stat,next){
       //cl('stat.name>',stat.name);
-      if(_skips.indexOf(stat.name)>-1) return next();
-      infoGet(stat.name,function(infos){
-        if(infos.name) var info = infos; 
-        else info = infos[stat.name];
+      if($.gitignore.indexOf(stat.name)>-1) return next();     
+      infoGet(dir,stat.name,function(info){
         //cl('changedFile:',info);
         info.stat = stat.stat;
         files.push(info);
@@ -347,6 +429,7 @@ function infoParse(raw){
     if(bits.length > 3) {
       // name|ver|uid|flags|notes
       if(bits.length == 5) [data.name,data.ver,data.uid,data.flags,data.notes] = bits;
+      
       // ver|uid|flags|notes
       else [data.ver,data.uid,data.flags,data.notes] = bits;
     }
@@ -358,34 +441,41 @@ function infoParse(raw){
     }
   }
   
-  if((/L/).test(data.flags)) data.lock = true;
+  data.lock = (/L/).test(data.flags);
   data.ver = ver2array(data.ver); 
   data.notes = notes2array(data.notes);
   
   return data;    
 }
 
-// get last commit multi={xxx:{name:sss}} or single {name:sss}
-function infoGet(fns,cb=cl){
+// get last commit for one file. {name,ver}
+function infoGet(dir,fn,cb=cl){
+  var cmd = ["log","origin/master","--oneline",`--grep="${fn}"`,"|","grep","-m1",'""'];
+  git_exec(dir,{args:cmd},function(list){
+    var info = infoParse(list[0]);
+    info.name = fn; 
+    cb(info);
+  })
+}
+
+// get last commit multiple files {xx:{name:ver},yy:{name,ver}}
+function infosGet(dir,fns,cb=cl){
   if(!Array.isArray(fns)) fns=[fns];
   var files = {};
-  //cl('infoGet()',fns)
-  async.eachSeries(fns,function(fn,next){
-    var cmd = ["log","origin/master","--oneline",`--grep="${fn}"`,"|","grep","-m1",'""'];
-    git_exec($.source,{args:cmd},function(list){
-      var info = infoParse(list[0]);
-      info.name = info.name || fn;
+  async.eachSeries(fns,function(fn,next){  
+    infoGet(dir,fn,function(info){
       files[info.name] = info;  
       next();
     })
   },function(){
-    if(fns.length==1) return cb(files[fns[0]]);
-    else cb(files);
-  }) 
+    cb(files);
+  })   
+  
 }
 
 function locked(cb=cl){
-  git_exec($.source,{args:["log",'--grep="|L|"',"--oneline"]},function(list){
+dir=$.source.path; 
+  git_exec(dir,{args:["log",'--grep="|L|"',"--oneline"]},function(list){
     var files = [];
     list.map(function(file){
       var info = infoParse(file);
