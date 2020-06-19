@@ -14,7 +14,8 @@
   "binary"          : {
                         "path"    : "/usr/share/dev/nodejs/src/pure3-bin",
                         "info"    : "/usr/share/dev/nodejs/src/pure3",
-                        "locals"  : ["package.json"]
+                        "locals"  : ["package.json","pure3-linux-aa","pure3-linux-ab","pure3-linux-ac","pure3-linux-ad"],
+                        "_locals"  : ["package.json"]
                       },
   
   

@@ -4,7 +4,13 @@ if(!global.$) global.$ = {};
 
 $ = Object.assign($,require('./config.json'));
 
-const ce = function(e1){console.error(style(e1,'fgr'))}
+// ...args
+const ce = function(...args){
+  args.map(function(e,i){args[i] = style(e,'fgr')})
+  console.error(...args);
+  _fs.appendFileSync(_path.join('/var/log','puredev-err.log'),`${args.join('\n')}\n`);
+}
+
 const cl = console.log;
 const jl = function(obj,str){
   str=str||'';
@@ -29,10 +35,16 @@ const _async      = require('async');
 const _min        = require('./minify');
 const _git        = require('./git');
 const _pug        = require('pug');
+const _crypto     = require('crypto');
 
 const {promisify} = require('util');
 
 var _lastnote = '';
+
+function sha(str){
+  str = str || Math.random().toString();
+  return _crypto.createHash('sha').update(str).digest('base64');
+}
 
 function isopt(opt){
   return (_opts.indexOf(opt)>-1)
@@ -125,37 +137,17 @@ function dbInit(){
   })
 }
 
-// {path,info,locals}
-function source(dir){return $[dir]}
-
-// files info NOT in source repo.
-function locals(list,files,cb){
-
-  if(_uid != 'pac') return cb(files);
-  var locs = []; files.map(function(file){
-    if(list.indexOf(file.name)>-1) locs.push(file.name);  
-  });
-  
-  if(locs.length) _git.infosGet($.binary.path,locs,function(infos){
-    cl()
-    cl(infos)
-    cl()
-    cb(Object.assign(files,infos)); 
-  })
-  
-  else cb(files);
-}
-
 // returns 
 function selectFiles(repo,cb=cl){
-  const src = source(repo); 
-  _git.changedFiles(src.path,function(files){
-    
+  const src = source(repo);
+  
+
+  _git.changedFiles(src.path,function(files){ 
     // check for local versions of file info.
     locals(src.locals,files,function(files){
-  
+   
       if(!files.length) {
-        cl(`Nothing to ${_cmd}.`)
+        ce(`No ${_cmd} files..`)
         return cb([]);
       }
   
@@ -266,26 +258,37 @@ function conUnlock(cb=cl){
   lockUnlock('unlock',cb)
 }
 
+// Release notes (binary only)
+function releaseNotes(repo,cb){
+  if(repo=='target') return cb();
+  else prompt('Enter Release Notes',cb,'Development');    
+}
+
+
 // console main release func
 function release(repo='target'){
   const src = source(repo);
   selectFiles(repo,function(files){
-    _async.eachSeries(files,function(file,next){
-      cl(style(`> ${file.name}`,'fgw'));
-      _git.fileCommit(src.path,file,function(){
-        next();
-      });
-    },function(){
-      
-      /* RELEASE-DONE */
-      _git.push(src.path,function(){
-        h2(`Released files (${files.length})`);
-        list(files.map(function(file){
-          return `${rpad(file.name,20)} - ${file.notes[0]||''}`;  
-        }));
-      });
-    })
-  }) 
+    if(!files.length) exit();
+    releaseNotes(repo,function(note){
+      _async.eachSeries(files,function(file,next){
+        if(note) file = _git.addNote(file,note);
+        cl(style(`> ${file.name} ver: ${file.ver}`,'fgw'));
+        _git.fileCommit(src.path,file,function(){
+          next();
+        });
+      },function(){
+        
+        /* RELEASE-DONE */
+        _git.push(src.path,function(){
+          h2(`Released files (${files.length})`);
+          list(files.map(function(file){
+            return `${rpad(file.name,20)} - ${file.notes[0]||''}`;  
+          }))   // list
+        });     // _git.push()
+      })        // _async.each()
+    })          // selectFiles() 
+  })            // rel_notes();
     
 }
 
@@ -298,11 +301,21 @@ function pugBuild(fn,cb=cl){
   const fp  = _path.join(html,fn);
   var src = _fs.readFileSync(fp,'utf-8');
   
+  if((/_inc.pug$/).test(fname)){
+    if((/^extends\s\S*/).test(src)) return cb({
+      error : true,
+      msg   : `[${fname}] _inc files cannot extend.`,
+      code  : src
+    });
+  }
+  
   return cb({
     error : false,
     msg   : `[${fname}] Build Success.`,
     code  : src
   })
+  
+  
   
   /*
   
@@ -369,7 +382,10 @@ function buildFiles(files,cb){
   function buildWrite(file,code,cb=cl){
     const {sfn,rfn} = fns(file.name);
     //cl(`buildWrite(',${rfn})`);
-    code = `/*${JSON.stringify({ver:file.ver,notes:file.notes})}*/${code}`;
+    file.notes = file.notes || [];
+    const comment = `${JSON.stringify({sha:sha(code),ver:file.ver,notes:file.notes.join(':')})}`; 
+    if(_path.extname(file.name) == '.pug') code = `${code}\n\n//- ${comment}\n`;
+    else code = `/*${comment}*/\n${code}`;
     _fs.writeFile(rfn,code,'utf-8',function(){
       cb();
     });
@@ -418,10 +434,8 @@ function buildFiles(files,cb){
     dodir(rfn); // create folder if not exists.
     
     switch (extn){
-      /*
       case 'jade':
       case 'pug':
-      */
       case 'js':
       case 'css':
         buildTry(file.name,function(build){
@@ -618,44 +632,86 @@ function help(){
   cl();
 }
 
+function doargs(){
+  var dels=[];
+  _args.map(function(arg,idx){
+    if((/^-+/).test(arg)) {
+      _opts.push(arg.replace(/^-+/,''));
+      dels.push(idx);
+    };
+  })
+  dels.reverse().map(function(idx){
+    _args.splice(idx,1)
+  })
+}
+
+// {path,info,locals}
+function source(dir){return $[dir]}
+
+// files info NOT in source repo.
+function locals(list,files,cb){
+
+  if(_uid != 'pac') return cb(files);
+  
+  // list changed files & see if in locals.
+  var done=[], locs = []; files.map(function(file){
+    //cl(file);
+    //if((/^pure3-linux-a*/).test(file.name)) cl(file);
+    if(list.indexOf(file.name)>-1) locs.push(file.name);
+    else done.push(file);  
+  });
+  
+  // get file-info from non-source path.
+  if(locs.length) _git.infosGet($.binary.path,locs,function(infos){
+    for(var k in infos){
+      infos[k].ver = _git.verInc(infos[k].ver); // increment version
+      done.push(infos[k]);  
+    }
+    cb(done); 
+  })
+  
+  else cb(files);
+}
+
 /* ### RUN ### */
-_args.map(function(arg,idx){
-  const opt = arg.match(/^-+(.*)/);
-  if(opt) {
-    _opts.push(opt[1]);
-    _args.splice(idx,1);
-  };
-  //if($.debug > 1) cl('_opts:',_opts)
-})
+doargs();
 
-if(_uid=='pac' || isopt('debug')){
+if(isopt('debug')) {
+  $.debug = 2;
+  cl(`options: ${_opts.join(',')}`);
+  cl(`args: ${_args.join(',')}`);
+  if(isopt('exit')) process.exit();
+}
 
-  h1('PAC-DEV')
+if(_uid=='pac'){
 
+  // ce('xxx','yyy'); process.exit();
+
+  // h1('PAC-DEV')
   if(isopt('dev')){
     $.source.path = '/usr/share/dev/nodejs/src/pure-git/src/tests';
     $.target.path = '/usr/share/dev/nodejs/src/pure-git/run/testr';
     $.deploy.path = '/usr/share/dev/nodejs/src/pure-git/dep/testr';
   }
 
-  //$.debug = 2;
   function history(cb=cl){
     _git.exec($.source.path,{args:["whatchanged","--name-only","--oneline","--since",'06/01/2020',"--until",'06/02/2020']},function(rows){
       cl(rows);  
     })
   }
-}
 
-function comRevert(){
-  prompt('Enter File Path',function(path){
-dir = $.source.path;
-    _git.infoGet(dir,path,function(file){
-      _git.revert($.source.path,file,function(ok){
-        cl(ok);  
-      })  
-    })    
-    
-  },_args[0]) ;
+  function comRevert(){
+    prompt('Enter File Path',function(path){
+    dir = $.source.path;
+      _git.infoGet(dir,path,function(file){
+        _git.revert($.source.path,file,function(ok){
+          cl(ok);  
+        })  
+      })    
+      
+    },_args[0]) ;
+  }
+
 }
 
 switch(_cmd) {

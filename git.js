@@ -40,6 +40,7 @@ module.exports = {
   fileCommit     : fileCommit,
   fileRm         : fileRm,
   revert         : revert,
+  addNote        : addNote,
   
   /* Global */
   push           : push,
@@ -120,6 +121,12 @@ function verInc(ver){
   return (bits.join('.')); 
 }
 */
+
+function addNote(file,note){
+  file.rels[file.ver.join('.')] = {notes:[note]};
+  file.notes = [note];
+  return file;  
+}
 
 function verInc(ver){
   ver[0] = ver[0] || $.version;
@@ -450,6 +457,7 @@ function infoParse(raw){
 
 // get last commit for one file. {name,ver}
 function infoGet(dir,fn,cb=cl){
+  // cl('infoGet():dir',dir);
   var cmd = ["log","origin/master","--oneline",`--grep="${fn}"`,"|","grep","-m1",'""'];
   git_exec(dir,{args:cmd},function(list){
     var info = infoParse(list[0]);
