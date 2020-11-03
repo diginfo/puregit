@@ -1,17 +1,39 @@
 #!/usr/bin/env node
 
+/*
+  
+  2010-10-31 - PAC
+  ISSUE: Update (git checkout) has been performed on folder(s)
+  ERROR: detached HEAD
+  ERROR: HEAD detached at 1a75b43
+  FIX: git checkout master
+  
+  
+*/
+
+
 if(!global.$) global.$ = {};
 
 $ = Object.assign($,require('./config.json'));
 
-// ...args
+// Logging
+const cl = console.log;
+
+const cc = function(fgc,...args){
+  fgc = fgc || 'fgg';
+  args.map(function(e,i){args[i] = style(e,fgc)})
+  cl(...args);
+}
+
 const ce = function(...args){
-  args.map(function(e,i){args[i] = style(e,'fgr')})
-  console.error(...args);
+  cc('fgr',...args)
   _fs.appendFileSync(_path.join('/var/log','puredev-err.log'),`${args.join('\n')}\n`);
 }
 
-const cl = console.log;
+const cw = function(...args){
+  cc('fgy',...args)
+}
+
 const jl = function(obj,str){
   str=str||'';
   try {cl(str,style(JSON.stringify(obj),'fgc'))}
@@ -40,6 +62,11 @@ const _crypto     = require('crypto');
 const {promisify} = require('util');
 
 var _lastnote = '';
+
+function filePerm(path){
+  var stat = _fs.statSync(path);
+  return '0' + (stat.mode & parseInt('777', 8)).toString(8);
+}
 
 function sha(str){
   str = str || Math.random().toString();
@@ -79,8 +106,10 @@ function list(list,sty){
 }
 
 function oblist(obj,sty){
+  var i =1;
   for(var k in obj){
-    cl(`${lpad(k,8)} : ${JSON.stringify(obj[k]).replace(/"/g,'')}`)    
+    cl(`${lpad(i,2)} ${lpad(k,6)} : ${JSON.stringify(obj[k]).replace(/"/g,'')}`);
+    i++;    
   }  
 }
 
@@ -141,15 +170,20 @@ function dbInit(){
 function selectFiles(repo,cb=cl){
   const src = source(repo);
   
-
-  _git.changedFiles(src.path,function(files){ 
+  _git.changedFiles(src.path,src.info,function(files){ 
+    
+    //cl('[selectFiles]:1',files[36]);
+    
     // check for local versions of file info.
-    locals(src.locals,files,function(files){
+    binLocals(src.locals,files,function(files){
    
       if(!files.length) {
         ce(`No ${_cmd} files..`)
         return cb([]);
       }
+ 
+      // used in binary -release -all
+      if(isopt('all')) return cb(files);
   
       // file name supplied as arg 1.
       if(_args[0]){
@@ -235,6 +269,58 @@ function islock(flags){
   return flags;
 }
 
+function infoSet(cb=cl){
+  //quit('--amend only updates last commit. rebase ?')
+  prompt('Enter File Path', function(fn){
+    if((/^$|^x$|^q$/).test(fn)) quit('File path is required.');
+    dir = $.source.path; // only update source files.
+    _git.infoGet(dir,fn,function(file){
+      list(file);
+      file.path = _path.join(dir,file.name);
+      const keys = Object.keys(file);          
+      var key,val;
+      prompt('Select Field', function(idx){
+        if(isNaN(idx) || idx < 2 || idx > keys.length) quit('Invalid Seletion.');
+        idx --;
+        key = keys[idx];
+        val = file[key];
+        prompt(`Enter new value [${key}]`, function(nval){
+          switch(key){
+            case 'ver':
+              file.ver = _git.ver2array(nval.replace(',','.'));  
+              break;
+            
+            case 'notes':
+              file.notes = [nval];
+              break;
+            
+            case 'lock':
+              file.lock = nval == 'true';
+              if(file.lock) file.flags = flagLock(file.flags);
+              else file.flags = flagUnlock(file.flags);
+              break;                
+            
+            default:
+              quit(`${key}: not yet implemented.`);
+          }
+          
+          if(!(/U/).test(file.flags)) file.flags += 'U';
+          
+          //cl(file.path);
+          touch(file.path);
+          //exit();
+          _git.exec(dir,{args:["add",file.name]},function(raw){
+            _git.fileCommit($.source.path,file,function(){
+              _git.push($.source.path,cb)
+            })
+          });
+
+        },val.toString()) // new value        
+      }) // select field
+    });
+  },_args[0]);  
+}
+
 function lockUnlock(mode,cb){
   prompt('Enter File Path', function(fn){
     if((/^$|^x$|^q$/).test(fn)) quit('File path is required.');
@@ -261,14 +347,18 @@ function conUnlock(cb=cl){
 // Release notes (binary only)
 function releaseNotes(repo,cb){
   if(repo=='target') return cb();
-  else prompt('Enter Release Notes',cb,'Development');    
+  else if(isopt('all')) {
+    if(_args[0]) return cb(_args[0]);
+    return cb('auto-build-all');
+  }
+  else prompt('Enter Release Notes',cb,`${_uid.toUpperCase()} - `);    
 }
-
 
 // console main release func
 function release(repo='target'){
   const src = source(repo);
   selectFiles(repo,function(files){
+    //cl('[release]:1',files);
     if(!files.length) exit();
     releaseNotes(repo,function(note){
       _async.eachSeries(files,function(file,next){
@@ -277,8 +367,7 @@ function release(repo='target'){
         _git.fileCommit(src.path,file,function(){
           next();
         });
-      },function(){
-        
+      },function(){      
         /* RELEASE-DONE */
         _git.push(src.path,function(){
           h2(`Released files (${files.length})`);
@@ -294,28 +383,61 @@ function release(repo='target'){
 
 // fails 
 function pugBuild(fn,cb=cl){
-  fn = fn.replace($.pug.basedir,'');
-  const fname = _path.basename(fn);
   //if(!$.pug.enabled) return quit('pug is disabled.')
-  const html = _path.join($.source.path,$.pug.basedir);
-  const fp  = _path.join(html,fn);
-  var src = _fs.readFileSync(fp,'utf-8');
   
-  if((/_inc.pug$/).test(fname)){
-    if((/^extends\s\S*/).test(src)) return cb({
-      error : true,
-      msg   : `[${fname}] _inc files cannot extend.`,
-      code  : src
-    });
+  fn          = fn.replace($.pug.basedir,'');
+  const fname = _path.basename(fn);
+  const html  = _path.join($.source.path,$.pug.basedir);
+  var fp      = _path.join(html,fn);
+  
+  if($.debug>1) cl(`[pugBuild]:\nfn:${fn}\nfname:${fname}\nhtml:${html}\nfp:${fp}\n`);
+
+  /*
+    [pugBuild]: 
+    fn        : /vwltsa/sa_jobman.pug 
+    fname     : sa_jobman.pug 
+    html      : /usr/share/dev/nodejs/src/pure3/html/eui 
+    fp        : /usr/share/dev/nodejs/src/pure3/html/eui/vwltsa/sa_jobman.pug
+
+    [pugBuild]:
+    fn        : mod/sales/email/asdf_billings.pug
+    fname     : asdf_billings.pug
+    html      : /usr/share/dev/nodejs/src/pure3/html/eui
+    fp        : /usr/share/dev/nodejs/src/pure3/html/eui/mod/sales/email/asdf_billings.pug
+
+  */
+  
+  // dont process email templates: mod/sales/email/asdf_billings.pug
+  if((/^mod\//).test(fn)) {
+    fp = _path.join($.source.path,fn);
+    var src = _fs.readFileSync(fp,'utf-8');// .replace(/\\r/g,'').trim();//.replace(/\n/g, '\r\n');
+    
+    return cb({
+      code  : src,
+      warn  : true,
+      error : false,
+      msg   : `${fn} is not a html/eui/ file.`
+    })
   }
   
-  return cb({
-    error : false,
-    msg   : `[${fname}] Build Success.`,
-    code  : src
-  })
+  // read [fp] template.
+  else {
+    
+    var src = _fs.readFileSync(fp,'utf-8').trim();
+    if((/_inc.pug$/).test(fname)){
+      if((/^extends\s\S*/).test(src)) return cb({
+        error : true,
+        msg   : `[${fname}] _inc files cannot extend.`,
+        code  : src
+      });
+    }
   
-  
+    return cb({
+      error : false,
+      msg   : `[${fname}] Build Success.`,
+      code  : src
+    })
+  }
   
   /*
   
@@ -384,8 +506,9 @@ function buildFiles(files,cb){
     //cl(`buildWrite(',${rfn})`);
     file.notes = file.notes || [];
     const comment = `${JSON.stringify({sha:sha(code),ver:file.ver,notes:file.notes.join(':')})}`; 
-    if(_path.extname(file.name) == '.pug') code = `${code}\n\n//- ${comment}\n`;
-    else code = `/*${comment}*/\n${code}`;
+    //if(_path.extname(file.name) == '.pug') code = `${code}\n\n//- ${comment}\n`;
+    //else code = `/*${comment}*/\n${code}`;
+    if(_path.extname(file.name) != '.pug') code = `/*${comment}*/\n${code}`;
     _fs.writeFile(rfn,code,'utf-8',function(){
       cb();
     });
@@ -402,6 +525,31 @@ function buildFiles(files,cb){
 
   _async.eachSeries(files,function(file,next){
     cl(style(`> ${file.name}`,'fgw'));
+
+    // Prompt for notes.
+    function notes(){
+      prompt(`Enter Notes`,function(notes){
+        
+        if(notes && !(/^$|^x$|^q$/).test(notes)) {
+          file.notes = notes;
+          _lastnote = notes;
+        } 
+        else quit('Notes are required.');
+        
+        commit();
+      
+      },file.notes[0] || _lastnote);  // prompt-notes 
+    }
+    
+    // commit the file.
+    function commit(){
+      _git.fileCommit($.source.path,file,function(data){
+        proc.push(file);
+        next();
+      });
+    }
+    
+    // post file build & copy
     function done(min){
       
       // js/css compile error.
@@ -409,37 +557,37 @@ function buildFiles(files,cb){
         quit(min.msg)
       }
       
+      // file.skipnotes
+      if(file.skipnotes) {
+        delete file.skipnotes;
+        commit();
+      }
+      
       // prompt for notes.
-      prompt(`Enter Notes`,function(notes){
-        
-        if(notes && !(/^$|^x$|^q$/).test(notes)) {
-          file.notes = notes;
-          _lastnote = notes;
-        } 
-        
-        else quit('Notes are required.');
-      
-        // commit the file.
-        _git.fileCommit($.source.path,file,function(data){
-          proc.push(file);
-          next();
-        });   
-      
-      },file.notes[0] || _lastnote);  // prompt-notes      
+      else notes();
+    
     }
     
-    file.ver = _git.verInc(file.ver); // increment version.
+    file.flags = file.flags.replace('U','');  // remove Update (infoSet) flag.
+    file.ver = _git.verInc(file.ver);         // increment version.
     var extn = _path.extname(file.name).replace(/^\./,'');
     const {sfn,rfn} = fns(file.name);
     dodir(rfn); // create folder if not exists.
     
     switch (extn){
-      case 'jade':
-      case 'pug':
       case 'js':
       case 'css':
         buildTry(file.name,function(build){
           if(build.error) return done(build);
+          buildWrite(file,build.code,done); 
+        });
+        break;
+
+      case 'jade':
+      case 'pug':
+        buildTry(file.name,function(build){
+          if(build.error) return done(build);
+          //cl(file,build.code);
           buildWrite(file,build.code,done); 
         });
         break;
@@ -527,13 +675,19 @@ function find(arg,cb){
   });
 }
 
-// binary build
-function binBuild(cb){
-  var cmd =`/bin/bash ${$.binary.path}/private/build;`;
+// Binary build
+function binSync(cb){
+  var cmd =`/bin/bash ${$.binary.path}/private/sync;`;
   _git.shell(cmd,cb);       
 }
 
-// binary release
+// Binary Compile
+function binCompile(cb){
+  var cmd =`/bin/bash ${$.binary.path}/private/compile;`;
+  _git.shell(cmd,cb);       
+}
+
+// Binary Release
 function binRelease(note,cb){
   var cmd =`cd ${$.binary.path} && git commit -a -m "${note}" && git push;`;
   _git.shell(cmd,cb);       
@@ -548,7 +702,7 @@ function conFind(arg,cb){
         path  : path,
         str   : str
       },cb)
-    }) 
+    },_args[0]) 
   })  
 }
 
@@ -574,22 +728,43 @@ function conFindText(cb=cl){
   conFind({mode:'t'},cb) 
 }
 
+// get and (true) increment the package version.
+function binPack(inc){
+  var packpath = _path.join($.binary.path,'package.json'); 
+  var pack = require(packpath);
+  if(inc) {
+    pack.version = _git.verInc(pack.version);
+    _fs.writeFileSync(packpath,JSON.stringify(pack,null,2));
+  }  
+  return pack.version;
+}
+
 // console binary builds
 function conBinary(){
+
+  $.binver = binPack();
 
   if((/^release/).test(_opts)) {
     release('binary');
   }
 
-  else if((/^build/).test(_opts)) {
+  else if((/^sync/).test(_opts)) {
+    binSync(function(ok){
+      cl(`${$.binver} Binary Files Sync Completed.`);    
+    });     
+  }
+
+  else if((/^compile/).test(_opts)) {
     cl('This will take up to 1 minute.')
     prompt('Proceed ? [y/n]',function(yn){
       if(yn.toLowerCase()!='y') exit(); 
       cl('Please wait...');
       conLoading();
-      binBuild(function(ok){
+      binCompile(function(ok){
+        cl(ok);
         conLoading(true);
-        cl('Binary build complete.');    
+        binPack(true);
+        cl(`${$.binver} Binary COMPILE complete.`);   
       });       
     })
   }
@@ -615,12 +790,15 @@ function help(){
   row('Release File(s)','puredev rel|release [dir/file]')
 
   h2('Pure Binary')
-  row('Build & Release','puredev binary -build -release')
+  row('File Sync','puredev binary -sync')
+  row('Compile Binary','puredev binary -compile')
+  row('Github Release','puredev binary -release')
   
   h2('Modify Files')
-  row('Lock File','puredev lock dir/file')
-  row('Unlock File','puredev unlock dir/file')
+  //row('Lock File','puredev lock dir/file')
+  //row('Unlock File','puredev unlock dir/file')
   row('Delete File','puredev rm dir/file')
+  row('Change Info','puredev infoSet dir/file')
   
   h2('File Info')
   row('Find File(s)','puredev findFiles')
@@ -649,14 +827,21 @@ function doargs(){
 function source(dir){return $[dir]}
 
 // files info NOT in source repo.
-function locals(list,files,cb){
+function binLocals(list,files,cb){
 
-  if(_uid != 'pac') return cb(files);
-  
   // list changed files & see if in locals.
-  var done=[], locs = []; files.map(function(file){
-    //cl(file);
-    //if((/^pure3-linux-a*/).test(file.name)) cl(file);
+  var bin, done=[], locs = []; files.map(function(file){
+
+    // only return 1 file pure3-linux-a*; 
+    if(1==2 && (/^pure3-linux-a*/).test(file.name)) {
+      if(_uid == 'pac') {
+        if(!bin) {
+          file.name = 'pure3-linux-a*';
+          locs.push(file.name);
+        }
+      }
+    }
+    
     if(list.indexOf(file.name)>-1) locs.push(file.name);
     else done.push(file);  
   });
@@ -664,9 +849,11 @@ function locals(list,files,cb){
   // get file-info from non-source path.
   if(locs.length) _git.infosGet($.binary.path,locs,function(infos){
     for(var k in infos){
-      infos[k].ver = _git.verInc(infos[k].ver); // increment version
+      //infos[k].ver = _git.verInc(infos[k].ver); // increment version
+      infos[k].ver = $.binver;
       done.push(infos[k]);  
     }
+    
     cb(done); 
   })
   
@@ -683,9 +870,22 @@ if(isopt('debug')) {
   if(isopt('exit')) process.exit();
 }
 
+function touch(path){
+  var oper = filePerm(path); 
+  var bits = oper.split('');
+  if(bits[1]=='7') bits[1]='6'; else bits[1]='7';
+  var nper = bits.join(''); 
+  _fs.chmodSync(path,nper);
+  return {old:oper,new:nper};   
+}
+
 if(_uid=='pac'){
 
   // ce('xxx','yyy'); process.exit();
+
+  //var file = _path.join(__dirname,'puredev.js'); 
+  //cl(touch(file));
+  //exit();
 
   // h1('PAC-DEV')
   if(isopt('dev')){
@@ -717,7 +917,7 @@ if(_uid=='pac'){
 switch(_cmd) {
   
   case 'changedFiles':
-    _git.changedFiles($.source.path);
+    _git.changedFiles($.source.path,$.source.info);
     break;
 
   case 'info':
@@ -737,7 +937,7 @@ dir = $.source.path;
     break;
 
   case 'infoSet':
-    infoSet(_args[0].trim());
+    infoSet();
     break;
     
   case 'build':
@@ -760,9 +960,15 @@ dir = $.source.path;
     });
     break;
 
+/*
   case 'lock':
     conLock();
     break;
+
+  case 'unlock':
+    conUnlock();
+    break;
+*/
   
   case 'fileFind':
   case 'filesFind':
@@ -782,10 +988,6 @@ dir = $.source.path;
       list(files);
       cl()  
     });
-    break;
-
-  case 'unlock':
-    conUnlock();
     break;
 
   case 'rm':

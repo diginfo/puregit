@@ -30,6 +30,7 @@ module.exports = {
   filedata       : filedata,
   infoParse      : infoParse,
   locked         : locked,
+  ver2array      : ver2array,
   
   /* File */
   infoGet        : infoGet,
@@ -212,9 +213,10 @@ function fileCommit(dir,file,cb=cl){
   if($.debug > 1) cl('fileCommit():',notes);
   var args = ["commit","-o",file.name,"-m",`"${notes}"`];
   
-  // mainly used by lock/unnlock
-  if(file.force) args.push("--amend");
-  delete(file.force);
+  // this only works on LAST commit.
+  // if(file.force) args.push("--amend");
+  //delete(file.force);
+  //cl(dir,args); process.exit();
   
   git_exec(dir,{args:args},function(res){
     if(cb) cb(res);
@@ -382,16 +384,19 @@ function status(dir,cb=cl){
   })  
 }
 
-// returns [array] of file objects
-function changedFiles(dir,cb=cl){
+/* 
+  src   = repo to check for changes
+  info  = repo to get build info
+  returns [] of file objects
+*/
+function changedFiles(src,info,cb=cl){
   const files=[];
-  status(dir,function(stats){
-    //cl('stats>',stats); // [ { stat: 'A', name: 'file.js' } ]
+  status(src,function(stats){
+    //cl('[changedFiles]:stats',stats); // [ { stat: 'A', name: 'file.js' } ]  
     async.eachSeries(stats,function(stat,next){
       //cl('stat.name>',stat.name);
       if($.gitignore.indexOf(stat.name)>-1) return next();     
-      infoGet(dir,stat.name,function(info){
-        //cl('changedFile:',info);
+      infoGet(info,stat.name,function(info){
         info.stat = stat.stat;
         files.push(info);
         if(stat.oname) {  // if file has been renamed.
@@ -461,7 +466,8 @@ function infoGet(dir,fn,cb=cl){
   var cmd = ["log","origin/master","--oneline",`--grep="${fn}"`,"|","grep","-m1",'""'];
   git_exec(dir,{args:cmd},function(list){
     var info = infoParse(list[0]);
-    info.name = fn; 
+    info.name = fn;
+    info.ver = ver2array(info.ver); 
     cb(info);
   })
 }

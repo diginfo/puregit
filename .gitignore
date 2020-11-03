@@ -2,3 +2,5 @@ node_modules/
 dep/
 run/
 src/
+dev/
+*.dev.*

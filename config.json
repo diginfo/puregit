@@ -14,7 +14,21 @@
   "binary"          : {
                         "path"    : "/usr/share/dev/nodejs/src/pure3-bin",
                         "info"    : "/usr/share/dev/nodejs/src/pure3",
-                        "locals"  : ["package.json","pure3-linux-aa","pure3-linux-ab","pure3-linux-ac","pure3-linux-ad"],
+                        "locals"  : [
+                          "package.json",
+                          "pure3-install",
+                          "glow",
+                          "node_sqlite3.node",
+                          "pure3-update",
+                          "pure3",
+                          "README.md",
+                          "bcrypt_lib.node",
+                          "bcrypt_lib.node.019",
+                          "bcrypt_lib.node.021",
+                          "pure3-linux.tar.gz",
+                          "utils"
+                          
+                        ],
                         "_locals"  : ["package.json"]
                       },
   
