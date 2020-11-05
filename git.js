@@ -124,6 +124,7 @@ function verInc(ver){
 */
 
 function addNote(file,note){
+  if(!Array.isArray(file.ver)) file.ver = ver2array(file.ver);
   file.rels[file.ver.join('.')] = {notes:[note]};
   file.notes = [note];
   return file;  
