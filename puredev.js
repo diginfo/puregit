@@ -508,7 +508,8 @@ function buildFiles(files,cb){
     const comment = `${JSON.stringify({sha:sha(code),ver:file.ver,notes:file.notes.join(':')})}`; 
     //if(_path.extname(file.name) == '.pug') code = `${code}\n\n//- ${comment}\n`;
     //else code = `/*${comment}*/\n${code}`;
-    if(_path.extname(file.name) != '.pug') code = `/*${comment}*/\n${code}`;
+    var extn = _path.extname(file.name); 
+    if(extn != '.pug' && extn != '.sql') code = `/*${comment}*/\n${code}`;
     _fs.writeFile(rfn,code,'utf-8',function(){
       cb();
     });
@@ -575,6 +576,14 @@ function buildFiles(files,cb){
     dodir(rfn); // create folder if not exists.
     
     switch (extn){
+
+      case 'sql':
+        var sql = _fs.readFileSync(sfn,'utf-8');
+        sql = sql.replace(/(\/\*[^*]*\*\/)|(\/\/[^*]*)|(\n.*--.*)/g,'');
+        //sql = sql.replace(/^\s*\n/gm,''); // Blank Lines
+        buildWrite(file,sql,done);
+        break
+
       case 'js':
       case 'css':
         buildTry(file.name,function(build){
